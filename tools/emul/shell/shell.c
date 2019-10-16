@@ -42,7 +42,6 @@
 static Z80Context cpu;
 static uint8_t mem[0x10000] = {0};
 static uint8_t fsdev[MAX_FSDEV_SIZE] = {0};
-static uint32_t fsdev_size = 0;
 static uint32_t fsdev_ptr = 0;
 // 0 = idle, 1 = received MSB (of 24bit addr), 2 = received middle addr
 static int  fsdev_addr_lvl = 0;
@@ -62,14 +61,13 @@ static uint8_t io_read(int unused, uint16_t addr)
             fprintf(stderr, "Reading FSDEV in the middle of an addr op (%d)\n", fsdev_ptr);
             return 0;
         }
-        if (fsdev_ptr < fsdev_size) {
+        if (fsdev_ptr < MAX_FSDEV_SIZE) {
 #ifdef DEBUG
             fprintf(stderr, "Reading FSDEV at offset %d\n", fsdev_ptr);
 #endif
             return fsdev[fsdev_ptr];
         } else {
-            // don't warn when ==, we're not out of bounds, just at the edge.
-            if (fsdev_ptr > fsdev_size) {
+            if (fsdev_ptr >= MAX_FSDEV_SIZE) {
                 fprintf(stderr, "Out of bounds FSDEV read at %d\n", fsdev_ptr);
             }
             return 0;
@@ -77,11 +75,8 @@ static uint8_t io_read(int unused, uint16_t addr)
     } else if (addr == FS_ADDR_PORT) {
         if (fsdev_addr_lvl != 0) {
             return 3;
-        } else if (fsdev_ptr > fsdev_size) {
-            fprintf(stderr, "Out of bounds FSDEV addr request at %d / %d\n", fsdev_ptr, fsdev_size);
+        } else if (fsdev_ptr > MAX_FSDEV_SIZE) {
             return 2;
-        } else if (fsdev_ptr == fsdev_size) {
-            return 1;
         } else {
             return 0;
         }
@@ -105,18 +100,11 @@ static void io_write(int unused, uint16_t addr, uint8_t val)
             fprintf(stderr, "Writing to FSDEV in the middle of an addr op (%d)\n", fsdev_ptr);
             return;
         }
-        if (fsdev_ptr < fsdev_size) {
+        if (fsdev_ptr < MAX_FSDEV_SIZE) {
 #ifdef DEBUG
             fprintf(stderr, "Writing to FSDEV (%d)\n", fsdev_ptr);
 #endif
             fsdev[fsdev_ptr] = val;
-        } else if ((fsdev_ptr == fsdev_size) && (fsdev_ptr < MAX_FSDEV_SIZE)) {
-            // We're at the end of fsdev, grow it
-            fsdev[fsdev_ptr] = val;
-            fsdev_size++;
-#ifdef DEBUG
-            fprintf(stderr, "Growing FSDEV (%d)\n", fsdev_ptr);
-#endif
         } else {
             fprintf(stderr, "Out of bounds FSDEV write at %d\n", fsdev_ptr);
         }
@@ -156,13 +144,14 @@ int main()
     if (fp != NULL) {
         printf("Initializing filesystem\n");
         int i = 0;
-        int c = fgetc(fp);
-        while (c != EOF) {
-            fsdev[i] = c & 0xff;
-            i++;
-            c = fgetc(fp);
+        int c;
+        while ((c = fgetc(fp)) != EOF && i < MAX_FSDEV_SIZE) {
+            fsdev[i++] = c & 0xff;
         }
-        fsdev_size = i;
+        if (i == MAX_FSDEV_SIZE) {
+            fprintf(stderr, "Filesytem image too large.\n");
+            return 1;
+        }
         pclose(fp);
     } else {
         printf("Can't initialize filesystem. Leaving blank.\n");
