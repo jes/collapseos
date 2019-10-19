@@ -136,7 +136,10 @@ int main(int argc, char *argv[])
         // special case: just one file
         return spitblock(srcpath, basename(srcpath));
     } else {
-        return spitdir(srcpath, "", pattern);
+        int r = spitdir(srcpath, "", pattern);
+        char emptyblock[BLKSIZE] = {'C', 'F', 'S', 0};
+        fwrite(emptyblock, BLKSIZE, 1, stdout);
+        return r;
     }
 }
 
